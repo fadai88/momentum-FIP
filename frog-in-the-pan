@@ -1,0 +1,150 @@
+import requests
+import json
+import pandas as pd
+import datetime as dt
+from heapq import nlargest, nsmallest
+from functools import reduce
+import numpy as np
+import matplotlib.pyplot as plt
+
+lst = ["BTC", "ETH", "CAKE", "DOT", "MANA", "SAND", "AVAX", "ALGO", "ATOM", "MATIC", "BNB", 
+       "SNX", "THETA", "GRT", "LINK", "SHIB", "DOGE", "VET", "AXS", "SOL", "FIL", "TRX", 
+       "FTM", "FARM", "LTC", "ETC", "NEAR", "ALICE", "ICP", "EGLD", "UNI", "ADA", "XRP", 
+       "ZEC", "QUICK", "BAT", "ENJ", "GALA", "1INCH", "SLP", "COMP", "ROSE", "ONT", "AAVE", 
+       "ANKR", "NEO", "XTZ", "WTC", "OCEAN", "IOTA", "IOTX", "COTI", "XLM", "QTUM", "AR", 
+       "LINA", "BETA", "CELO", "ZIL", "HBAR", "OGN", "ILV", "ALPHA", "RVN", "KAVA","YGG", 
+       "AUDIO", "STORJ", "ATA", "DODO", "POND", "CHZ", "YFI", "SUPER", "NKN", "INJ", "EOS", 
+       "LRC", "ARPA", "LPT", "XVS", "KLAY", "CRV", "LTO", "MKR", "ONE", "RNDR",
+       "FOR", "BICO","SYS", "CELR", "ALPACA", "BLZ", "DUSK", "KNC", "PAXG", "DOCK", 
+       "MBOX", "BADGER", "ZRX", "IDEX", "FIDA"]
+
+def create_df():
+    pair = "USDT"
+    root_url = 'https://api.binance.com/api/v3/klines'
+    interval = '1d'
+    close_prices = pd.DataFrame()
+    for i in lst:
+        url = root_url + '?symbol=' + i + pair + '&interval=' + interval
+        data = json.loads(requests.get(url).text)   
+        if 'msg' in data:
+            pass
+        else:
+            df = pd.DataFrame(data)
+            df.columns = ['open_time',
+                          'o', 'h', 'l', 'c', 'v',
+                          'close_time', 'qav', 'num_trades',
+                          'taker_base_vol', 'taker_quote_vol', 'ignore']
+            df.index = [dt.datetime.fromtimestamp(x/1000.0) for x in df.close_time]
+            close_price = df['c']
+            close_prices[i] = close_price
+    close_prices = close_prices.apply(pd.to_numeric)
+    close_prices_cleaned = close_prices.dropna(axis=1)
+    return close_prices_cleaned
+close_prices = create_df()
+
+# PARAMETERS
+# how many days' data we'll look at?
+lookback = 35
+# ignoring last x days' data
+last_days = 0
+# how many days will we hold the coins?
+holding_days = 7
+# if BTC return is below the threshold over a given period, we hold BTC; otherwise, we buy altcoins
+threshold = 0.05
+
+
+def information_discreteness(df):
+    returns = df.pct_change()
+    positive_returns = returns[returns > 0]
+    negative_returns = returns[returns < 0]
+    negative_positive_diff = negative_returns.count() / len(df) - positive_returns.count() / len(df)
+    cumul_return = df[-1] / df[0] - 1
+    sign = lambda x: 1 if x > 0 else -1 if x < 0 else 0
+    info_discreteness = sign(cumul_return) * negative_positive_diff
+    return info_discreteness
+
+id_dict = {}
+for column in close_prices:
+    id_dict[column] = information_discreteness(close_prices[column])
+sorted_id_dict = {k: v for k, v in sorted(id_dict.items(), key=lambda item: item[1])}
+
+def crypto_momentum(df, lookback, last_days, holding_days, threshold, commission = 0.00075):
+    btc_price = df['BTC']
+    weekly_returns = []
+    for i in range(lookback, len(df)-lookback+1, holding_days):
+        if btc_price[i] / btc_price[i-lookback] - 1 > threshold:
+            total = 0
+            returns = dict()
+            five_smallest_dict = dict()
+            for col in df.columns[2:]:
+                # the reason why we check for NaN values is that for some days several tokens don't have price data at Binance.
+                # So, even these tokens can have high momentum, we should exclude them because they aren't tradeable on those days.
+                if np.isnan(df[col][i]) == False:
+                    try:
+                        token_slope = information_discreteness(df[col])
+                        returns[col] = token_slope
+                    except:
+                        pass
+            five_smallest = nsmallest(5, returns, key=returns.get)
+            for coin in five_smallest:
+                try:
+                    weekly_return = (df[coin][i+holding_days-1] * (1-commission)) / (df[coin][i] * (1+commission)) - 1
+                    total += weekly_return
+                except:
+                    pass
+            avg_weekly_return = total / 5
+            weekly_returns.append(avg_weekly_return)
+        else:
+            avg_weekly_return = 0
+            weekly_returns.append(avg_weekly_return)
+    return [weekly_returns, five_smallest_dict]
+
+wr = crypto_momentum(close_prices, lookback, last_days, holding_days, threshold)[0]
+selected_coins = crypto_momentum(close_prices, lookback, last_days, holding_days, threshold)[1]
+
+
+def geom_return(returns): 
+    returns= [i + 1 for i in returns]
+    cumulative_returns = np.cumprod(returns)
+    geometric_return = cumulative_returns[-1] ** (1/len(cumulative_returns)) - 1
+    annualized_return = (1 + geometric_return) ** 52 -1
+    return annualized_return
+annualized_return = geom_return(wr)
+print("Annual return is " + "{:.2%}".format(annualized_return))
+
+def benchmark_return(df, commission=0.00075):
+    btc_return = df['BTC'][-1] * (1 - commission) / (df['BTC'][0] * (1 + commission)) - 1
+    annual_btc_return = (1 + btc_return) ** (365 / len(df)) - 1
+    return annual_btc_return
+annual_btc_return = benchmark_return(close_prices)
+print("Benchmark return is " + "{:.2%}".format(annual_btc_return))
+
+
+def plot_returns(returns):
+    returns= [i + 1 for i in returns]
+    cumulative_returns = np.cumprod(returns)
+    plt.plot(cumulative_returns)
+plot_returns(wr)
+
+def calculate_max_drawdown(returns):
+    returns = [i+1 for i in returns]
+    cumulative_returns = np.cumprod(returns)
+    peak = np.maximum.accumulate(cumulative_returns)
+    drawdown = (cumulative_returns - peak) / peak
+    max_drawdown = np.min(drawdown)
+    return max_drawdown
+max_drawdown = calculate_max_drawdown(wr)
+print("Maximum Drawdown:", "{:.2%}".format(max_drawdown))
+
+# Sharpe ratio of weekly returns
+def calculate_sharpe_ratio(returns): 
+    # this should not be constant but should be calculated from yfinance.
+    annual_risk_free_rate = 0.02
+    weekly_risk_free_rate = (1 + annual_risk_free_rate)**(1/52) - 1
+    average_return = np.mean(returns)    
+    std_dev_returns = np.std(returns, ddof=1)
+    excess_return = average_return - weekly_risk_free_rate    
+    sharpe_ratio = excess_return / std_dev_returns
+    return sharpe_ratio
+sharpe_ratio = calculate_sharpe_ratio(wr)
+print(f"Sharpe Ratio: {sharpe_ratio:.4f}")

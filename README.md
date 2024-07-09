@@ -9,3 +9,5 @@ From the paper:
 "This hypothesis predicts that investors are less attentive to information arriving continuously in small amounts than to information with the same cumulative stock price implications that arrives in large amounts at discrete timepoints."
 
 Authors hypothesize that stocks with low ID, those with continuous price moves will deliver higher returns than those jumping from one price to the next one in a short period.
+
+This projects tests FIP hypothesis on crypto market. The data is daily close prices fetched from Binance, the largest crypto exchange. 

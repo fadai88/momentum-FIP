@@ -1,5 +1,6 @@
-**Frog in the Pan
-**
+**Frog in the Pan**
+
+
 The original paper underlying 'Frog in the Pan" idea can be found at https://www3.nd.edu/~zda/Frog.pdf
 Momentum is a well-documented anomaly in financial markets. But not all momentums are creared equal. Some assets move in discrete steps; they don't move, so to speak, they jump. Their information discreteness (ID) is high. Other securities move 
 more smoothly or continuously. Their ID is low. 
